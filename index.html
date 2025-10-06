@@ -1,27 +1,48 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Qwen3 Chat Web</title>
-    <link rel="stylesheet" href="style.css" />
+    <title>Channel Console | 홈</title>
+    <link rel="stylesheet" href="landing.css" />
 </head>
 <body>
-    <div class="chat-app">
-        <header class="chat-header">
-            <h1>Qwen3 Chat</h1>
-        </header>
-        <main class="chat-window" id="chatWindow" aria-live="polite"></main>
-        <form class="chat-input" id="chatForm" autocomplete="off">
-            <textarea
-                id="messageInput"
-                rows="1"
-                placeholder="Type a message"
-                aria-label="Message"
-            ></textarea>
-            <button type="submit" aria-label="Send message">Send</button>
-        </form>
-    </div>
-    <script src="main.js"></script>
+    <main class="hero">
+        <section class="hero-content">
+            <span class="hero-eyebrow">AI Chat Console</span>
+            <h1>팀의 대화를 한눈에.
+                <br />Channel Console과 함께 더 빠르게 대응하세요.</h1>
+            <p>
+                자동 저장되는 대화 기록과 우측 관리 패널로 고객과의 소통을 간편하게 정리해 보세요.
+                Supabase 인증을 통해 팀원별 맞춤 기록도 손쉽게 관리할 수 있습니다.
+            </p>
+            <div class="hero-actions">
+                <a class="btn-primary" href="chat.html">지금 시작하기</a>
+                <a class="btn-secondary" href="login.html">로그인</a>
+            </div>
+        </section>
+        <section class="hero-visual">
+            <div class="stat-card">
+                <strong>128</strong>
+                <span>지난주 자동 저장된 대화</span>
+            </div>
+            <div class="feature-card">
+                <div class="feature-list">
+                    <div class="feature-item">
+                        <span class="icon">1</span>
+                        <span>Supabase Auth로 안전한 로그인/회원가입</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="icon">2</span>
+                        <span>메시지를 보내는 즉시 자동 저장되는 대화 기록</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="icon">3</span>
+                        <span>우측 패널에서 과거 대화를 빠르게 조회</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
 </body>
 </html>

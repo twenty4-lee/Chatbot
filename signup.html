@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ko" data-auth-mode="signup">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>회원가입 | Channel Console</title>
+    <link rel="stylesheet" href="style.css" />
+    <style>
+        body {
+            align-items: center;
+            justify-content: center;
+            padding: 48px 24px;
+        }
+        .auth-page {
+            width: min(420px, 90vw);
+            background: var(--card-bg);
+            border-radius: 18px;
+            box-shadow: var(--shadow-soft);
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .auth-page h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+        }
+        .auth-page p.lead {
+            color: var(--text-light);
+            font-size: 0.95rem;
+        }
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .auth-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            color: var(--text-light);
+            font-size: 0.95rem;
+        }
+        .auth-field input {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 11px 14px;
+            font-size: 1rem;
+            background: #f7f9ff;
+            color: var(--text);
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+        .auth-field input:focus {
+            border-color: var(--accent);
+            outline: none;
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .auth-error {
+            color: #dc2626;
+            font-size: 0.9rem;
+        }
+        .auth-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .auth-actions .links {
+            display: inline-flex;
+            gap: 12px;
+            font-size: 0.9rem;
+        }
+        .auth-actions .links a {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <main class="auth-page">
+        <header>
+            <h1>회원가입</h1>
+            <p class="lead">아이디만 입력해도 <span id="domainHint">기본 도메인</span>이 자동으로 붙습니다.</p>
+        </header>
+        <form class="auth-form" id="authForm" autocomplete="off">
+            <div class="auth-field">
+                <label for="authId">아이디</label>
+                <input type="text" id="authId" autocomplete="username" required />
+            </div>
+            <div class="auth-field">
+                <label for="authPassword">비밀번호</label>
+                <input type="password" id="authPassword" autocomplete="new-password" required />
+            </div>
+            <div class="auth-field">
+                <label for="authConfirm">비밀번호 확인</label>
+                <input type="password" id="authConfirm" autocomplete="new-password" required />
+            </div>
+            <p class="auth-error" id="authError" hidden></p>
+            <button class="btn btn--primary" type="submit" id="authSubmitBtn">회원가입</button>
+        </form>
+        <div class="auth-actions">
+            <div class="links">
+                <span>이미 계정이 있나요?</span>
+                <a href="login.html">로그인</a>
+            </div>
+            <a class="btn btn--text" href="index.html">홈으로</a>
+        </div>
+    </main>
+    <script type="module" src="auth.js"></script>
+</body>
+</html>

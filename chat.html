@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Channel Console | Chat</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <header class="app-header">
+            <div class="header-info">
+                <h1>Channel Console</h1>
+                <p>대화 기록을 실시간으로 관리하세요.</p>
+            </div>
+            <div class="header-auth" id="headerAuth">
+                <div class="auth-links" id="authLinks" hidden>
+                    <a class="btn btn--text" href="login.html">로그인</a>
+                    <a class="btn btn--text" href="signup.html">회원가입</a>
+                </div>
+                <div class="auth-greeting" id="authGreeting" hidden>
+                    <span class="greeting-label" id="greetingLabel"></span>
+                    <button class="btn btn--text" type="button" id="logoutBtn">로그아웃</button>
+                </div>
+                <a class="btn btn--text" href="index.html" id="homeLink">홈 화면</a>
+            </div>
+        </header>
+        <div class="app-grid">
+            <section class="column column-middle" aria-label="Conversation">
+                <div class="column-body">
+                    <div class="panel chat-panel">
+                        <div class="chat-history" id="chatHistory" aria-live="polite"></div>
+                        <form class="chat-input" id="chatForm" autocomplete="off">
+                            <textarea id="messageInput" rows="1" placeholder="메시지를 입력하세요" aria-label="메시지 입력"></textarea>
+                            <button class="btn btn--primary" type="submit">Send</button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+            <section class="column column-right" aria-label="Saved conversations">
+                <div class="column-tabs" role="tablist" aria-label="Management views">
+                    <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab-target="saved">내 채팅기록</button>
+                    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="model-panel">모델 관리</button>
+                    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="sql-panel">내 SQL</button>
+                </div>
+                <div class="column-body">
+                    <div class="panel" data-tab-content="saved">
+                        <div class="card list-panel">
+                            <div class="list-header">
+                                <h2>저장된 대화</h2>
+                                <button class="btn btn--text" type="button" id="newChatBtn">+ 새 채팅</button>
+                            </div>
+                            <ul class="record-list" id="savedChatList"></ul>
+                            <p class="empty-state" id="savedEmptyMsg">아직 저장된 대화가 없습니다.</p>
+                        </div>
+                    </div>
+                    <div class="panel" data-tab-content="model-panel" hidden>
+                        <div class="card list-panel model-panel">
+                            <h2>모델 관리</h2>
+                            <p class="model-hint">응답을 생성할 기본 모델을 선택하세요.</p>
+                            <div class="model-options" id="modelOptions">
+                                <button class="model-button" type="button" data-model-id="Qwen/Qwen2.5-Coder-32B-Instruct">Qwen2.5 Coder 32B</button>
+                                <button class="model-button" type="button" data-model-id="Qwen/Qwen3-8B:nscale">Qwen3 8B (nscale)</button>
+                            </div>
+                            <p class="model-active" id="modelActiveLabel"></p>
+                        </div>
+                    </div>
+                    <div class="panel" data-tab-content="sql-panel" hidden>
+                        <div class="card list-panel">
+                            <h2>SQL 기록</h2>
+                            <p class="empty-state">SQL 기록 기능은 추후 추가될 예정입니다.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+    <div class="modal-overlay" id="deleteModal" hidden>
+        <div class="modal-card" role="alertdialog" aria-labelledby="deleteModalTitle" aria-modal="true">
+            <h3 id="deleteModalTitle">채팅 삭제</h3>
+            <p id="deleteModalMessage">선택한 대화를 삭제할까요?</p>
+            <div class="modal-actions">
+                <button class="btn btn--text" type="button" id="cancelDeleteBtn">취소</button>
+                <button class="btn btn--danger" type="button" id="confirmDeleteBtn">삭제</button>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
