@@ -1,4 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createToolRuntime } from "./tool-runtime.ts";
+import { normalizeChatContent } from "./tools/shared.ts";
 
 const HF_TOKEN = Deno.env.get("HF_TOKEN");
 if (!HF_TOKEN) {
@@ -7,6 +9,12 @@ if (!HF_TOKEN) {
 
 const HF_API_URL = "https://api-inference.huggingface.co/models";
 const HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions";
+
+const { buildToolDefinitions, runTool } = createToolRuntime({
+  hfToken: HF_TOKEN,
+  hfApiUrl: HF_API_URL,
+  hfKeywordModel: "smallllm/keyword-extractor"
+});
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -39,7 +47,7 @@ serve(async (req) => {
     }
 
     if (Array.isArray(messages) && messages.length > 0) {
-      return await forwardToRouter(trimmedModelId, messages, parameters);
+      return await forwardToRouterWithTools(trimmedModelId, messages, parameters);
     }
 
     if (typeof inputs === "string" && inputs.trim().length > 0) {
@@ -78,42 +86,129 @@ function defaultParameters(modelId: string) {
   };
 }
 
-async function forwardToRouter(modelId: string, messages: unknown, parameters: unknown) {
+async function forwardToRouterWithTools(modelId: string, messages: unknown, parameters: unknown) {
   const normalizedMessages = normalizeMessages(messages);
   if (!normalizedMessages.length) {
-    return new Response(JSON.stringify({ error: "messages must be an array of { role, content }" }), {
-      status: 400,
-      headers: corsHeaders
-    });
+    return jsonError("messages must be an array of { role, content }", 400);
   }
 
   const params = normalizeChatParameters(parameters, modelId);
-  const payload: Record<string, unknown> = {
-    model: modelId,
-    messages: normalizedMessages
-  };
+  const tools = buildToolDefinitions();
 
-  if (typeof params.temperature === "number") {
-    payload.temperature = params.temperature;
-  }
-  if (typeof params.max_tokens === "number") {
-    payload.max_tokens = params.max_tokens;
-  }
-  const provider = (params as { provider?: unknown }).provider;
-  if (provider !== undefined) {
-    payload.provider = provider;
+  let conversation = [...normalizedMessages];
+  const steps: Array<Record<string, unknown>> = [];
+
+  for (let iteration = 0; iteration < 6; iteration += 1) {
+    const payload: Record<string, unknown> = {
+      model: modelId,
+      messages: conversation,
+      tools,
+      tool_choice: "auto"
+    };
+
+    if (typeof params.temperature === "number") {
+      payload.temperature = params.temperature;
+    }
+    if (typeof params.max_tokens === "number") {
+      payload.max_tokens = params.max_tokens;
+    }
+    const provider = (params as { provider?: unknown }).provider;
+    if (provider !== undefined) {
+      payload.provider = provider;
+    }
+
+    const routerResponse = await fetch(HF_ROUTER_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!routerResponse.ok) {
+      const errorText = await routerResponse.text();
+      return jsonError(errorText || "Router request failed", routerResponse.status);
+    }
+
+    const routerData = await routerResponse.json();
+    const choice = Array.isArray(routerData?.choices) ? routerData.choices[0] : null;
+    const message = choice?.message;
+    if (!message) {
+      return jsonError("Router returned no message", 502);
+    }
+
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+    if (!toolCalls.length) {
+      const reply = normalizeChatContent(message.content) || "";
+      return jsonSuccess({ reply, steps });
+    }
+
+    conversation.push(message);
+
+    for (const call of toolCalls) {
+      const name = call?.function?.name;
+      const id = call?.id ?? crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        parsedArgs = parseJson(call?.function?.arguments) ?? {};
+      } catch (error) {
+        const failure = {
+          tool: name ?? "unknown",
+          success: false,
+          status: "failed",
+          error: "Invalid JSON arguments",
+          rawArguments: call?.function?.arguments ?? null
+        };
+        steps.push(failure);
+        conversation.push({
+          role: "tool",
+          tool_call_id: id,
+          content: JSON.stringify(failure)
+        });
+        continue;
+      }
+
+      try {
+        steps.push({
+          tool: name ?? "unknown",
+          success: null,
+          status: "started",
+          arguments: parsedArgs
+        });
+        const result = await runTool(name, parsedArgs);
+        steps.push({
+          tool: name ?? "unknown",
+          success: true,
+          status: "completed",
+          arguments: parsedArgs,
+          result
+        });
+        conversation.push({
+          role: "tool",
+          tool_call_id: id,
+          content: JSON.stringify(result)
+        });
+      } catch (error) {
+        const failure = {
+          tool: name ?? "unknown",
+          success: false,
+          status: "failed",
+          arguments: parsedArgs,
+          error: error instanceof Error ? error.message : String(error)
+        };
+        steps.push(failure);
+        conversation.push({
+          role: "tool",
+          tool_call_id: id,
+          content: JSON.stringify(failure)
+        });
+      }
+    }
   }
 
-  const response = await fetch(HF_ROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${HF_TOKEN}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  return buildProxyResponse(response);
+  return jsonError("Exceeded maximum tool iterations", 504);
 }
 
 async function forwardToInference(modelId: string, inputs: string, parameters: unknown) {
@@ -135,7 +230,13 @@ async function forwardToInference(modelId: string, inputs: string, parameters: u
     body: JSON.stringify(body)
   });
 
-  return buildProxyResponse(response);
+  if (!response.ok) {
+    const errorText = await response.text();
+    return jsonError(errorText || "Upstream error", response.status);
+  }
+
+  const data = await response.text();
+  return jsonSuccess({ reply: data, steps: [] });
 }
 
 function normalizeMessages(input: unknown): Array<{ role: string; content: string }> {
@@ -210,15 +311,29 @@ function normalizeGenerateParameters(parameters: unknown, modelId: string) {
   return Object.keys(result).length ? result : null;
 }
 
-async function buildProxyResponse(upstream: Response) {
-  const text = await upstream.text();
+function jsonSuccess(payload: Record<string, unknown>, contentType?: string | null) {
   const headers = { ...corsHeaders };
-  const contentType = upstream.headers.get("content-type");
-  if (contentType) {
-    headers["Content-Type"] = contentType;
-  }
-  return new Response(text, {
-    status: upstream.status,
+  headers["Content-Type"] = contentType ?? "application/json; charset=utf-8";
+  return new Response(JSON.stringify(payload), {
+    status: 200,
     headers
   });
+}
+
+function jsonError(message: string, status = 500) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: corsHeaders
+  });
+}
+
+function parseJson(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (_error) {
+    return null;
+  }
 }

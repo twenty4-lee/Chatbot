@@ -41,7 +41,7 @@
                 <div class="column-tabs" role="tablist" aria-label="Management views">
                     <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab-target="saved">내 채팅기록</button>
                     <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="model-panel">모델 관리</button>
-                    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="sql-panel">내 SQL</button>
+                    <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab-target="sql-panel">데이터 관리</button>
                 </div>
                 <div class="column-body">
                     <div class="panel" data-tab-content="saved">
@@ -66,9 +66,13 @@
                         </div>
                     </div>
                     <div class="panel" data-tab-content="sql-panel" hidden>
-                        <div class="card list-panel">
-                            <h2>SQL 기록</h2>
-                            <p class="empty-state">SQL 기록 기능은 추후 추가될 예정입니다.</p>
+                        <div class="card list-panel data-manage-panel">
+                            <div class="list-header">
+                                <h2>데이터 관리</h2>
+                                <button class="btn btn--text" type="button" id="dataManageBtn">+ 데이터 업로드</button>
+                            </div>
+                            <ul class="record-list" id="dataManageList"></ul>
+                            <p class="empty-state" id="dataManageEmpty">등록된 데이터가 없습니다.</p>
                         </div>
                     </div>
                 </div>
@@ -82,6 +86,41 @@
             <div class="modal-actions">
                 <button class="btn btn--text" type="button" id="cancelDeleteBtn">취소</button>
                 <button class="btn btn--danger" type="button" id="confirmDeleteBtn">삭제</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="dataDeleteModal" hidden>
+        <div class="modal-card" role="alertdialog" aria-labelledby="dataDeleteModalTitle" aria-modal="true">
+            <h3 id="dataDeleteModalTitle">데이터 삭제</h3>
+            <p id="dataDeleteModalMessage">선택한 데이터를 삭제할까요? 삭제하면 복구할 수 없습니다.</p>
+            <div class="modal-actions">
+                <button class="btn btn--text" type="button" id="dataDeleteCancelBtn">취소</button>
+                <button class="btn btn--danger" type="button" id="dataDeleteConfirmBtn">삭제</button>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="dataManageModal" hidden>
+        <div class="modal-card" role="dialog" aria-labelledby="dataManageModalTitle" aria-modal="true">
+            <h3 id="dataManageModalTitle">데이터 업로드</h3>
+            <p class="modal-description">엑셀 파일을 업로드해 데이터를 관리하세요.</p>
+            <form id="dataManageForm" class="data-manage-form">
+                <label class="form-label" for="dataManageFileInput">엑셀 파일 선택</label>
+                <input class="file-input" type="file" id="dataManageFileInput" accept=".xlsx,.xls,.xlsm,.xltx,.xltm" />
+                <p class="input-hint">지원 형식: .xlsx, .xls, .xlsm, .xltx, .xltm</p>
+                <p class="form-error" id="dataManageError" hidden>엑셀 파일을 선택해주세요.</p>
+                <div class="modal-actions">
+                    <button class="btn btn--text" type="button" id="dataManageCancelBtn">취소</button>
+                    <button class="btn btn--primary" type="submit" id="dataManageSubmitBtn">업로드</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="modal-overlay" id="dataManageSuccessModal" hidden>
+        <div class="modal-card" role="alertdialog" aria-labelledby="dataManageSuccessTitle" aria-modal="true">
+            <h3 id="dataManageSuccessTitle">업로드 완료</h3>
+            <p>엑셀 파일이 데이터 관리 목록에 추가되었습니다.</p>
+            <div class="modal-actions">
+                <button class="btn btn--primary" type="button" id="dataManageSuccessCloseBtn">확인</button>
             </div>
         </div>
     </div>

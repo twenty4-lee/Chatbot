@@ -1,2 +1,5 @@
 config.js
 supabase/.temp/
+supabase/.branches/
+supabase/functions/hf-proxy/.env
+supabase/functions/hf-proxy/supabase/

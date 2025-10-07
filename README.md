@@ -43,13 +43,44 @@ ChatGPT 스타일의 2-컬럼 웹 챗봇 콘솔입니다. `index.html`은 소개
   1. 프로젝트 디렉터리에서 `python -m http.server 8000`
   2. 브라우저에서 `http://localhost:8000` 접속 후 **지금 시작하기** 버튼 클릭
 
-## Hugging Face 프록시 배포
+## Hugging Face 프록시 & 도구(Runtime) 구조
 
-1. `supabase/functions/hf-proxy/index.ts`는 Supabase Edge Functions용 서버 코드입니다.
-2. 터미널에서 `supabase functions deploy hf-proxy`를 실행하고, `HF_TOKEN`을 시크릿으로 등록합니다.<br />
-   `supabase secrets set HF_TOKEN=hf_xxxxxxxxxxxxxxxxx`
-3. 배포가 완료되면 `https://<project-ref>.supabase.co/functions/v1/hf-proxy` 주소가 생성됩니다.
-4. `config.js`의 `HF_PROXY_URL` 값을 위 주소로 설정하면 프론트엔드가 해당 엔드포인트를 통해 Inference API를 호출합니다.
+- `supabase/functions/hf-proxy/`는 Hugging Face Inference Router를 프록시하면서 도구 호출을 지원합니다.
+- `tool-runtime.ts`가 네 개의 도구 모듈(`tools/keyword.ts`, `tools/date.ts`, `tools/glossary.ts`, `tools/query.ts`)을 조합해 `buildToolDefinitions` / `runTool`을 제공합니다.
+- 모델은 항상 `tool_choice: "auto"`로 호출되며, **필요한 경우에만** 도구를 사용합니다. 실행 로그는 `steps` 배열에 `status: started/completed/failed` 단계로 기록됩니다.
+
+### 배포 (Supabase 프로젝트)
+
+1. Hugging Face 토큰을 발급받아 Supabase 시크릿으로 저장합니다.
+   ```bash
+   supabase secrets set HF_TOKEN=hf_xxxxxxxxxxxxxxxxx
+   ```
+2. 도구 구성에 익명 호출을 허용하려면 `supabase/functions/hf-proxy/function.toml`이 반드시 커밋되어 있어야 합니다.
+3. Docker Desktop을 실행한 뒤 아래 명령으로 배포합니다.
+   ```bash
+   supabase functions deploy hf-proxy
+   ```
+4. 배포 후 `https://<project-ref>.supabase.co/functions/v1/hf-proxy` 주소가 생성되며, `config.js`의 `HF_PROXY_URL`에 해당 값을 넣어야 프론트가 프록시를 경유합니다.
+
+### 로컬 개발 & 테스트
+
+1. `supabase/functions/hf-proxy/.env` 파일을 만들고 Hugging Face 토큰을 선언합니다.
+   ```env
+   HF_TOKEN=hf_xxxxxxxxxxxxxxxxx
+   ```
+2. Docker를 실행한 상태에서 프록시를 로컬로 띄웁니다.
+   ```bash
+   supabase functions serve hf-proxy \
+     --env-file supabase/functions/hf-proxy/.env \
+     --no-verify-jwt \
+     --debug
+   ```
+   기본 포트는 `54321`이며, `--port` 옵션으로 변경할 수 있습니다.
+3. `config.js`의 `HF_PROXY_URL`을 `http://127.0.0.1:54321/functions/v1/hf-proxy`로 수정하고, 브라우저 `localStorage`의 `channel_console_*` 값을 삭제한 뒤 강력 새로고침(⌘⇧R)합니다.
+4. 메시지를 보내면 네트워크 응답의 `steps` 배열에 도구 실행 로그가 포함되고, UI에도 `🔧 <tool>` 메시지가 순차적으로 나타납니다.
+   - 툴이 호출되지 않았다면 모델이 자체적으로 필요 없다고 판단한 것입니다. 날짜 계산, 용어 설명, 키워드 추출 요청 등을 보내 도구 사용을 유도할 수 있습니다.
+
+> 배포 환경과 로컬 환경 모두에서 `HF_TOKEN`이 설정되어 있지 않으면 함수가 즉시 500 에러를 반환합니다.
 
 ## GitHub Pages 배포
 

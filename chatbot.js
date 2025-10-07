@@ -1,18 +1,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import exampleConfig from './config.example.js';
+import DEFAULT_SYSTEM_PROMPT from './chatbot-system-prompt.js';
 
 const SAVED_CHATS_PREFIX = 'channel_console_saved_chats_v2';
 const MODEL_STORAGE_PREFIX = 'channel_console_model_v1';
+const DATA_STORAGE_PREFIX = 'channel_console_data_v1';
 const DEFAULT_MODEL_ID = 'Qwen/Qwen2.5-Coder-32B-Instruct';
 const MODEL_DISPLAY_NAMES = {
     'Qwen/Qwen2.5-Coder-32B-Instruct': 'Qwen2.5 Coder 32B',
     'Qwen/Qwen3-8B:nscale': 'Qwen3 8B (nscale)'
 };
-const DEFAULT_SYSTEM_PROMPT = 'You are the Channel Console assistant. Provide accurate, concise answers and reply in Korean when the user writes in Korean.';
 const DUMMY_RESPONSES = [
     '네, 자세한 내용을 알려주시면 맞춤형 답변을 준비할게요.',
     '대화 내용을 정리해서 오른쪽 패널에 자동으로 저장합니다.',
-    'SQL 분석이 필요하면 우측 탭에서 관리할 수 있어요.',
+    '데이터 관리 탭에서 업로드한 파일을 확인하고 정리할 수 있어요.',
     '지금까지의 대화를 기반으로 다음 제안을 준비 중입니다.'
 ];
 
@@ -27,7 +28,8 @@ export function createChatbot() {
         activeConversationId: null,
         selectedModelId: DEFAULT_MODEL_ID,
         hfProxyUrl: exampleConfig.HF_PROXY_URL || '',
-        isSendingMessage: false
+        isSendingMessage: false,
+        dataEntries: []
     };
 
     const listeners = new Set();
@@ -52,7 +54,8 @@ export function createChatbot() {
             activeConversationId: state.activeConversationId,
             selectedModelId: state.selectedModelId,
             modelDisplayNames: { ...MODEL_DISPLAY_NAMES },
-            isSendingMessage: state.isSendingMessage
+            isSendingMessage: state.isSendingMessage,
+            dataEntries: state.dataEntries.map((entry) => ({ ...entry }))
         };
     }
 
@@ -71,6 +74,11 @@ export function createChatbot() {
     function storageKeyForModel(user = state.currentUser) {
         const id = user?.id ?? 'guest';
         return `${MODEL_STORAGE_PREFIX}:${id}`;
+    }
+
+    function storageKeyForData(user = state.currentUser) {
+        const id = user?.id ?? 'guest';
+        return `${DATA_STORAGE_PREFIX}:${id}`;
     }
 
     function sortConversations() {
@@ -122,6 +130,30 @@ export function createChatbot() {
             localStorage.setItem(key, state.selectedModelId);
         } catch (error) {
             console.error('Failed to persist model selection', error);
+        }
+    }
+
+    function loadDataEntriesFor(user) {
+        const key = storageKeyForData(user);
+        try {
+            const stored = localStorage.getItem(key);
+            if (!stored) {
+                return [];
+            }
+            const parsed = JSON.parse(stored);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+            console.error('Failed to load data entries', error);
+            return [];
+        }
+    }
+
+    function persistDataEntries() {
+        const key = storageKeyForData();
+        try {
+            localStorage.setItem(key, JSON.stringify(state.dataEntries));
+        } catch (error) {
+            console.error('Failed to persist data entries', error);
         }
     }
 
@@ -189,7 +221,10 @@ export function createChatbot() {
 
     async function fetchModelReply(prompt) {
         if (!state.hfProxyUrl) {
-            return DUMMY_RESPONSES[Math.floor(Math.random() * DUMMY_RESPONSES.length)];
+            return {
+                text: DUMMY_RESPONSES[Math.floor(Math.random() * DUMMY_RESPONSES.length)],
+                steps: []
+            };
         }
 
         const modelId = state.selectedModelId;
@@ -221,7 +256,16 @@ export function createChatbot() {
         }
 
         const data = await response.json();
-        return extractTextFromHFResponse(data);
+        if (data && typeof data === 'object') {
+            const text = typeof data.reply === 'string' && data.reply ? data.reply : extractTextFromHFResponse(data);
+            const steps = Array.isArray(data.steps) ? data.steps : [];
+            return { text, steps };
+        }
+
+        return {
+            text: extractTextFromHFResponse(data),
+            steps: []
+        };
     }
 
     function buildProviderParameters(modelId) {
@@ -328,6 +372,72 @@ export function createChatbot() {
         return '';
     }
 
+    function formatToolStep(step) {
+        if (!step || typeof step !== 'object') {
+            return '';
+        }
+        const name = typeof step.tool === 'string' ? step.tool : 'tool';
+        const prefix = `🔧 ${name}`;
+        const status = typeof step.status === 'string' ? step.status : (step.success === false ? 'failed' : 'completed');
+        if (status === 'started') {
+            return `${prefix} 실행 준비 중…`;
+        }
+        if (step.success === false || status === 'failed') {
+            const reason = typeof step.error === 'string' ? step.error : '실패했습니다.';
+            return `${prefix} 실패: ${reason}`;
+        }
+        const summary = summarizeToolResult(name, step.result);
+        return summary ? `${prefix}: ${summary}` : `${prefix} 완료`;
+    }
+
+    function summarizeToolResult(name, result) {
+        if (!result || typeof result !== 'object') {
+            return stringifyResult(result);
+        }
+        if (name === 'extract_keywords') {
+            const keywords = Array.isArray(result.keywords) ? result.keywords : [];
+            if (keywords.length) {
+                return `키워드 ${keywords.join(', ')}`;
+            }
+        }
+        if (name === 'calculate_date') {
+            if (typeof result.operation === 'string' && result.operation === 'difference' && typeof result.difference_in_days === 'number') {
+                return `${result.start_date} ↔ ${result.end_date} = ${result.difference_in_days}일 차이`;
+            }
+            if (typeof result.operation === 'string' && result.operation === 'add' && typeof result.result_date === 'string') {
+                return `${result.start_date} 기준 ${result.value ?? 0}${result.unit === 'weeks' ? '주' : '일'} → ${result.result_date}`;
+            }
+        }
+        if (name === 'lookup_glossary') {
+            const count = typeof result.count === 'number' ? result.count : (Array.isArray(result.matches) ? result.matches.length : 0);
+            if (count > 0) {
+                const first = result.matches?.[0]?.term ?? result.term;
+                return `${count}개 용어 발견${first ? ` (예: ${first})` : ''}`;
+            }
+            return '관련 용어를 찾지 못했습니다.';
+        }
+        if (name === 'query_uploaded_data') {
+            if (typeof result.message === 'string') {
+                return result.message;
+            }
+        }
+        return stringifyResult(result);
+    }
+
+    function stringifyResult(value) {
+        if (!value) {
+            return '';
+        }
+        if (typeof value === 'string') {
+            return value;
+        }
+        try {
+            return JSON.stringify(value);
+        } catch (_error) {
+            return '';
+        }
+    }
+
     function updateModelSelection(modelId) {
         if (!MODEL_DISPLAY_NAMES[modelId]) {
             return;
@@ -355,6 +465,31 @@ export function createChatbot() {
         persistConversations();
         emit();
         return { ...conversation, messages: conversation.messages.map((message) => ({ ...message })) };
+    }
+
+    function addDataEntry(entry) {
+        const dataEntry = {
+            id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            name: entry.name,
+            size: entry.size,
+            type: entry.type,
+            uploadedAt: Date.now()
+        };
+        state.dataEntries.push(dataEntry);
+        state.dataEntries.sort((a, b) => b.uploadedAt - a.uploadedAt);
+        persistDataEntries();
+        emit();
+        return { ...dataEntry };
+    }
+
+    function deleteDataEntry(entryId) {
+        const index = state.dataEntries.findIndex((item) => item.id === entryId);
+        if (index === -1) {
+            return;
+        }
+        state.dataEntries.splice(index, 1);
+        persistDataEntries();
+        emit();
     }
 
     function renameConversation(conversationId, title) {
@@ -396,7 +531,15 @@ export function createChatbot() {
         emit();
         try {
             recordMessage('user', text);
-            const reply = await fetchModelReply(text);
+            const { text: reply, steps = [] } = await fetchModelReply(text);
+            if (Array.isArray(steps) && steps.length) {
+                steps.forEach((step) => {
+                    const formatted = formatToolStep(step);
+                    if (formatted) {
+                        recordMessage('bot', formatted);
+                    }
+                });
+            }
             recordMessage('bot', reply);
             return reply;
         } finally {
@@ -458,6 +601,7 @@ export function createChatbot() {
         state.isAuthenticated = false;
         state.selectedModelId = loadModelSelectionFor(null);
         state.conversations = loadConversationsFor(null);
+        state.dataEntries = loadDataEntriesFor(null);
         sortConversations();
         if (state.conversations.length) {
             state.activeConversationId = state.conversations[0].id;
@@ -472,6 +616,7 @@ export function createChatbot() {
         state.isAuthenticated = true;
         state.selectedModelId = loadModelSelectionFor(user);
         state.conversations = loadConversationsFor(user);
+        state.dataEntries = loadDataEntriesFor(user);
         sortConversations();
         if (state.conversations.length) {
             state.activeConversationId = state.conversations[0].id;
@@ -525,6 +670,8 @@ export function createChatbot() {
         renameConversation,
         deleteConversation,
         selectModel: updateModelSelection,
+        addDataEntry,
+        deleteDataEntry,
         getModelOptions() {
             return Object.entries(MODEL_DISPLAY_NAMES).map(([id, label]) => ({ id, label }));
         },

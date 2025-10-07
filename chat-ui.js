@@ -16,16 +16,97 @@ const deleteModal = document.getElementById('deleteModal');
 const deleteModalMessage = document.getElementById('deleteModalMessage');
 const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
 const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+const dataManageList = document.getElementById('dataManageList');
+const dataManageEmptyMsg = document.getElementById('dataManageEmpty');
+const dataManageBtn = document.getElementById('dataManageBtn');
+const dataDeleteModal = document.getElementById('dataDeleteModal');
+const dataDeleteModalMessage = document.getElementById('dataDeleteModalMessage');
+const dataDeleteCancelBtn = document.getElementById('dataDeleteCancelBtn');
+const dataDeleteConfirmBtn = document.getElementById('dataDeleteConfirmBtn');
+const dataManageModal = document.getElementById('dataManageModal');
+const dataManageForm = document.getElementById('dataManageForm');
+const dataManageFileInput = document.getElementById('dataManageFileInput');
+const dataManageCancelBtn = document.getElementById('dataManageCancelBtn');
+const dataManageError = document.getElementById('dataManageError');
+const dataManageSuccessModal = document.getElementById('dataManageSuccessModal');
+const dataManageSuccessCloseBtn = document.getElementById('dataManageSuccessCloseBtn');
 
 const MENU_OPEN_CLASS = 'open';
+const ALLOWED_EXCEL_EXTENSIONS = ['.xlsx', '.xls', '.xlsm', '.xltx', '.xltm'];
 
 export function setupChatUI(chatbot) {
     let editingConversationId = null;
     let pendingFocusChatId = null;
     let pendingDeleteChatId = null;
+    let pendingDeleteEntryId = null;
     let lastErrorMessage = '';
     let latestState = chatbot.getState();
     let previousConversationId = latestState.activeConversationId;
+    let isComposingMessage = false;
+    let pendingSubmitAfterComposition = false;
+    let shouldForceClearAfterComposition = false;
+
+    function showDataManageError(message) {
+        if (!dataManageError) {
+            return;
+        }
+        dataManageError.textContent = message;
+        dataManageError.hidden = !message;
+    }
+
+    function resetDataManageModal() {
+        dataManageForm?.reset();
+        showDataManageError('');
+    }
+
+    function isExcelFile(file) {
+        if (!file?.name) {
+            return false;
+        }
+        const name = file.name.toLowerCase();
+        return ALLOWED_EXCEL_EXTENSIONS.some((extension) => name.endsWith(extension));
+    }
+
+    function openDataManageModal() {
+        resetDataManageModal();
+        dataManageModal?.removeAttribute('hidden');
+        requestAnimationFrame(() => {
+            dataManageFileInput?.focus();
+        });
+    }
+
+    function closeDataManageModal() {
+        resetDataManageModal();
+        dataManageModal?.setAttribute('hidden', '');
+    }
+
+    function openDataManageSuccessModal() {
+        dataManageSuccessModal?.removeAttribute('hidden');
+        requestAnimationFrame(() => {
+            dataManageSuccessCloseBtn?.focus();
+        });
+    }
+
+    function closeDataManageSuccessModal() {
+        dataManageSuccessModal?.setAttribute('hidden', '');
+    }
+
+    function openDataDeleteModal(entryId) {
+        pendingDeleteEntryId = entryId;
+        const entry = latestState.dataEntries.find((item) => item.id === entryId);
+        if (dataDeleteModalMessage && entry) {
+            dataDeleteModalMessage.textContent = `"${entry.name}" 데이터를 삭제할까요? 삭제하면 복구할 수 없습니다.`;
+        }
+        dataDeleteModal?.removeAttribute('hidden');
+        requestAnimationFrame(() => {
+            dataDeleteConfirmBtn?.focus();
+        });
+    }
+
+    function closeDataDeleteModal() {
+        pendingDeleteEntryId = null;
+        dataDeleteModal?.setAttribute('hidden', '');
+    }
 
     function getActiveConversation(state) {
         return state.conversations.find((item) => item.id === state.activeConversationId) ?? null;
@@ -45,6 +126,23 @@ export function setupChatUI(chatbot) {
         bubble.textContent = text;
         chatHistory.appendChild(bubble);
         return bubble;
+    }
+
+    function clearMessageInput() {
+        const reset = () => {
+            messageInput.value = '';
+            messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+        };
+
+        shouldForceClearAfterComposition = true;
+        reset();
+
+        setTimeout(() => {
+            if (!isComposingMessage) {
+                reset();
+                shouldForceClearAfterComposition = false;
+            }
+        }, 120);
     }
 
     function scrollChatToBottom() {
@@ -161,6 +259,66 @@ export function setupChatUI(chatbot) {
                 pendingFocusChatId = null;
             });
         }
+    }
+
+    function formatFileSize(bytes) {
+        if (!bytes && bytes !== 0) {
+            return '-';
+        }
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+        return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+    }
+
+    function formatDateTime(timestamp) {
+        const date = new Date(timestamp);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    }
+
+    function renderDataEntries(state) {
+        if (!dataManageList || !dataManageEmptyMsg) {
+            return;
+        }
+
+        dataManageList.innerHTML = '';
+
+        if (!state.dataEntries.length) {
+            dataManageEmptyMsg.hidden = false;
+            return;
+        }
+
+        dataManageEmptyMsg.hidden = true;
+
+        state.dataEntries.forEach((entry) => {
+            const item = document.createElement('li');
+            item.className = 'data-item';
+
+            const info = document.createElement('div');
+            info.className = 'data-info';
+            const name = document.createElement('span');
+            name.className = 'data-name';
+            name.textContent = entry.name;
+            const meta = document.createElement('span');
+            meta.className = 'data-meta';
+            meta.textContent = `${formatFileSize(entry.size)} · ${formatDateTime(entry.uploadedAt)}`;
+            info.appendChild(name);
+            info.appendChild(meta);
+
+            const deleteButton = document.createElement('button');
+            deleteButton.type = 'button';
+            deleteButton.className = 'btn btn--text data-delete';
+            deleteButton.dataset.entryId = entry.id;
+            deleteButton.textContent = '삭제';
+
+            item.appendChild(info);
+            item.appendChild(deleteButton);
+            dataManageList.appendChild(item);
+        });
     }
 
     function updateAuthUI(state) {
@@ -294,8 +452,68 @@ export function setupChatUI(chatbot) {
         commitChatRename(input.dataset.chatId, input.value);
     }
 
+    function handleDataManageFileChange() {
+        const file = dataManageFileInput?.files?.[0] ?? null;
+        if (!file) {
+            showDataManageError('');
+            return;
+        }
+        if (!isExcelFile(file)) {
+            showDataManageError('엑셀 형식(.xlsx, .xls 등)만 업로드할 수 있습니다.');
+            dataManageFileInput.value = '';
+            return;
+        }
+        showDataManageError('');
+    }
+
+    function handleDataManageSubmit(event) {
+        event.preventDefault();
+        const file = dataManageFileInput?.files?.[0] ?? null;
+        if (!file) {
+            showDataManageError('업로드할 엑셀 파일을 선택해주세요.');
+            return;
+        }
+        if (!isExcelFile(file)) {
+            showDataManageError('엑셀 형식(.xlsx, .xls 등)만 업로드할 수 있습니다.');
+            dataManageFileInput.value = '';
+            return;
+        }
+        showDataManageError('');
+        const newEntry = chatbot.addDataEntry({ name: file.name, size: file.size, type: file.type });
+        latestState = chatbot.getState();
+        closeDataManageModal();
+        renderDataEntries(latestState);
+        if (newEntry?.id) {
+            const row = dataManageList?.querySelector(`.data-delete[data-entry-id="${newEntry.id}"]`);
+            row?.focus?.();
+        }
+        openDataManageSuccessModal();
+    }
+
+    function handleDataManageListClick(event) {
+        const deleteBtn = event.target.closest('.data-delete');
+        if (!deleteBtn) {
+            return;
+        }
+        const entryId = deleteBtn.dataset.entryId;
+        if (!entryId) {
+            return;
+        }
+        openDataDeleteModal(entryId);
+    }
+
+    function handleDataDeleteConfirm() {
+        if (!pendingDeleteEntryId) {
+            closeDataDeleteModal();
+            return;
+        }
+        chatbot.deleteDataEntry(pendingDeleteEntryId);
+        closeDataDeleteModal();
+    }
+
     async function handleChatSubmit(event) {
         event.preventDefault();
+        pendingSubmitAfterComposition = false;
         if (latestState.isSendingMessage) {
             return;
         }
@@ -304,7 +522,7 @@ export function setupChatUI(chatbot) {
             return;
         }
 
-        messageInput.value = '';
+        clearMessageInput();
         lastErrorMessage = '';
         try {
             await chatbot.sendMessage(text);
@@ -369,16 +587,51 @@ export function setupChatUI(chatbot) {
         setupTabGroups();
 
         chatForm.addEventListener('submit', handleChatSubmit);
+        messageInput.addEventListener('compositionstart', () => {
+            isComposingMessage = true;
+        });
+
+        function submitMessage() {
+            pendingSubmitAfterComposition = false;
+            chatForm.requestSubmit();
+        }
+
+        messageInput.addEventListener('compositionend', () => {
+            isComposingMessage = false;
+
+            requestAnimationFrame(() => {
+                if (shouldForceClearAfterComposition) {
+                    if (messageInput.value) {
+                        messageInput.value = '';
+                        messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                    shouldForceClearAfterComposition = false;
+                }
+            });
+
+            if (pendingSubmitAfterComposition) {
+                submitMessage();
+            }
+        });
+
         messageInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
+                if (event.isComposing || isComposingMessage) {
+                    pendingSubmitAfterComposition = true;
+                    return;
+                }
                 event.preventDefault();
-                chatForm.requestSubmit();
+                submitMessage();
             }
         });
 
         savedChatList.addEventListener('click', handleSavedChatClick);
         savedChatList.addEventListener('keydown', handleChatEditKeydown);
         savedChatList.addEventListener('blur', handleChatEditBlur, true);
+
+        if (dataManageList) {
+            dataManageList.addEventListener('click', handleDataManageListClick);
+        }
 
         const modelOptions = document.getElementById('modelOptions');
         if (modelButtons.length && modelOptions) {
@@ -391,6 +644,34 @@ export function setupChatUI(chatbot) {
                 editingConversationId = conversation.id;
                 lastErrorMessage = '';
             });
+        }
+
+        if (dataManageBtn) {
+            dataManageBtn.addEventListener('click', openDataManageModal);
+        }
+
+        if (dataManageCancelBtn) {
+            dataManageCancelBtn.addEventListener('click', closeDataManageModal);
+        }
+
+        if (dataManageForm) {
+            dataManageForm.addEventListener('submit', handleDataManageSubmit);
+        }
+
+        if (dataManageFileInput) {
+            dataManageFileInput.addEventListener('change', handleDataManageFileChange);
+        }
+
+        if (dataDeleteCancelBtn) {
+            dataDeleteCancelBtn.addEventListener('click', closeDataDeleteModal);
+        }
+
+        if (dataDeleteConfirmBtn) {
+            dataDeleteConfirmBtn.addEventListener('click', handleDataDeleteConfirm);
+        }
+
+        if (dataManageSuccessCloseBtn) {
+            dataManageSuccessCloseBtn.addEventListener('click', closeDataManageSuccessModal);
         }
 
         if (logoutBtn) {
@@ -426,10 +707,43 @@ export function setupChatUI(chatbot) {
             });
         }
 
+        if (dataManageModal) {
+            dataManageModal.addEventListener('click', (event) => {
+                if (event.target === dataManageModal) {
+                    closeDataManageModal();
+                }
+            });
+        }
+
+        if (dataManageSuccessModal) {
+            dataManageSuccessModal.addEventListener('click', (event) => {
+                if (event.target === dataManageSuccessModal) {
+                    closeDataManageSuccessModal();
+                }
+            });
+        }
+
+        if (dataDeleteModal) {
+            dataDeleteModal.addEventListener('click', (event) => {
+                if (event.target === dataDeleteModal) {
+                    closeDataDeleteModal();
+                }
+            });
+        }
+
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape') {
                 if (!deleteModal?.hasAttribute('hidden')) {
                     closeDeleteModal();
+                }
+                if (!dataManageModal?.hasAttribute('hidden')) {
+                    closeDataManageModal();
+                }
+                if (!dataManageSuccessModal?.hasAttribute('hidden')) {
+                    closeDataManageSuccessModal();
+                }
+                if (!dataDeleteModal?.hasAttribute('hidden')) {
+                    closeDataDeleteModal();
                 }
                 cancelChatRename();
                 closeAllChatMenus();
@@ -446,6 +760,7 @@ export function setupChatUI(chatbot) {
         applyModelSelection(state);
         renderSavedChats(state);
         renderConversation(state);
+        renderDataEntries(state);
         previousConversationId = state.activeConversationId;
     }
 
@@ -458,6 +773,7 @@ export function setupChatUI(chatbot) {
             applyModelSelection(state);
             renderSavedChats(state);
             renderConversation(state);
+            renderDataEntries(state);
             previousConversationId = state.activeConversationId;
         }
     });
