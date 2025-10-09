@@ -93,3 +93,64 @@ ChatGPT 스타일의 2-컬럼 웹 챗봇 콘솔입니다. `index.html`은 소개
 ## 무료로 호스팅하려면?
 
 GitHub Pages, Netlify, Vercel 등의 정적 호스팅 서비스는 무료 플랜을 제공하므로 이 프로젝트를 별도 서버 없이 배포할 수 있습니다. 실시간 백엔드를 원한다면 Render, Railway, Deta Space 등의 무료 티어를 검토해보세요.
+
+## 데이터 업로드 & 조회
+
+### 구조
+
+- 엑셀 파일은 Supabase Storage 버킷(`Chatbot`)에 저장됩니다.
+- 파일 메타데이터는 `public.data_entries` 테이블에 기록됩니다.
+- `query_uploaded_data` 도구는 Supabase 서비스 롤 키를 사용해 업로드된 데이터를 조회합니다.
+
+### CLI 환경 준비
+
+1. 로컬 Supabase CLI를 다시 맞추려면 최신 마이그레이션을 반영합니다.
+   ```bash
+   supabase db reset
+   ```
+   저장된 데이터가 있다면 `supabase db push`를 활용해도 됩니다.
+2. 함수 실행 환경 변수 설정 (`supabase/functions/hf-proxy/.env` 예시):
+   ```env
+   HF_TOKEN=hf_xxxxxxxxxxxxxxxxx
+   SUPABASE_URL=https://<project-ref>.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=xxxx
+   DATA_BUCKET=Chatbot
+   ```
+3. 함수 실행:
+   ```bash
+   supabase functions serve hf-proxy \
+     --env-file supabase/functions/hf-proxy/.env \
+     --no-verify-jwt \
+     --debug
+   ```
+
+### 프런트엔드 설정
+
+- `config.js`에 다음 항목이 존재해야 합니다.
+  ```js
+  export const SUPABASE_URL = 'https://<project-ref>.supabase.co';
+  export const SUPABASE_ANON_KEY = '<anon-key>';
+  export const DEFAULT_DOMAIN = 'example.com';
+  export const HF_PROXY_URL = 'http://127.0.0.1:54321/functions/v1/hf-proxy';
+  export const DATA_BUCKET = 'Chatbot';
+  ```
+- 로그인 상태에서 데이터 관리 탭에서 엑셀 파일을 업로드하고 `⋯` 메뉴로 미리보기/삭제를 수행할 수 있습니다.
+- 챗봇은 자동으로 업로드된 데이터 목록(`entry_id`, `name`, `size`, `uploaded_at`)을 시스템 메시지에 포함시켜 `query_uploaded_data` 도구 호출에 필요한 정보를 제공합니다.
+
+### query_uploaded_data 사용 예시
+
+모델/도구 호출에 포함되는 JSON 예시:
+```json
+{
+  "entry_id": "8a8e8c1f-...",
+  "user_id": "d0b1c24b-...",
+  "query": "매출",
+  "max_rows": 20
+}
+```
+- `entry_id`: `data_entries.id`
+- `user_id`: 현재 로그인한 사용자의 UUID
+- `query`: (선택) 검색 키워드, 없으면 상위 행을 반환
+- `max_rows`: (선택) 최대 200
+
+결과에는 `headers`, `rows`, `matched_rows`, `returned_rows`, `total_rows`가 포함됩니다. 오류가 발생하면 메시지에 원인을 담아 반환합니다.

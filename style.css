@@ -250,6 +250,7 @@ body {
     padding: 12px 16px;
     border-radius: 12px;
     background: #f5f7ff;
+    position: relative;
 }
 
 .data-info {
@@ -394,6 +395,10 @@ body {
     gap: 18px;
 }
 
+.modal-card--wide {
+    width: min(720px, 92vw);
+}
+
 .modal-card h3 {
     font-size: 1.2rem;
     font-weight: 700;
@@ -445,6 +450,38 @@ body {
 .form-error {
     font-size: 0.85rem;
     color: #b91c1c;
+}
+
+.data-preview-scroller {
+    margin-top: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    max-height: 360px;
+    overflow: auto;
+    background: #ffffff;
+}
+
+.data-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    min-width: 480px;
+}
+
+.data-preview-table thead {
+    background: rgba(37, 99, 235, 0.08);
+}
+
+.data-preview-table th,
+.data-preview-table td {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.data-preview-table td {
+    white-space: normal;
 }
 
 .modal-actions {
@@ -615,4 +652,55 @@ body {
     .chat-input {
         padding: 14px;
     }
+}
+.data-menu-trigger {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: #667085;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.data-menu-trigger:hover {
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--accent);
+}
+
+.data-menu {
+    position: absolute;
+    top: 44px;
+    right: 8px;
+    display: none;
+    flex-direction: column;
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid rgba(37, 99, 235, 0.18);
+    box-shadow: 0 18px 32px rgba(15, 23, 42, 0.18);
+    min-width: 150px;
+    z-index: 30;
+}
+
+.data-menu.open {
+    display: flex;
+}
+
+.data-menu button {
+    border: none;
+    background: transparent;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.data-menu button:hover {
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--accent);
 }

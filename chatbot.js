@@ -16,6 +16,51 @@ const DUMMY_RESPONSES = [
     '데이터 관리 탭에서 업로드한 파일을 확인하고 정리할 수 있어요.',
     '지금까지의 대화를 기반으로 다음 제안을 준비 중입니다.'
 ];
+const DEFAULT_DATA_BUCKET = 'Chatbot';
+const SHEETJS_MODULE_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm';
+
+let sheetParserPromise = null;
+
+async function loadSheetParser() {
+    if (!sheetParserPromise) {
+        sheetParserPromise = import(SHEETJS_MODULE_URL);
+    }
+    return sheetParserPromise;
+}
+
+function formatFileSize(bytes) {
+    if (typeof bytes !== 'number' || Number.isNaN(bytes)) {
+        return '-';
+    }
+    if (bytes <= 0) {
+        return '0 B';
+    }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+        value /= 1024;
+        index += 1;
+    }
+    const formatted = index === 0 ? value.toFixed(0) : value.toFixed(1);
+    return `${formatted} ${units[index]}`;
+}
+
+function formatDateTime(timestamp) {
+    if (!timestamp) {
+        return '';
+    }
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mi = String(date.getMinutes()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
 
 export function createChatbot() {
     const state = {
@@ -134,6 +179,10 @@ export function createChatbot() {
     }
 
     function loadDataEntriesFor(user) {
+        if (user && state.supabaseClient) {
+            return [];
+        }
+
         const key = storageKeyForData(user);
         try {
             const stored = localStorage.getItem(key);
@@ -148,12 +197,42 @@ export function createChatbot() {
         }
     }
 
-    function persistDataEntries() {
-        const key = storageKeyForData();
+    function persistDataEntries(user = state.currentUser) {
+        if (user && state.isAuthenticated) {
+            return;
+        }
+
+        const key = storageKeyForData(user);
         try {
             localStorage.setItem(key, JSON.stringify(state.dataEntries));
         } catch (error) {
             console.error('Failed to persist data entries', error);
+        }
+    }
+
+    async function fetchRemoteDataEntries(user = state.currentUser) {
+        if (!user || !state.supabaseClient) {
+            return;
+        }
+        try {
+            const { data, error } = await state.supabaseClient
+                .from('data_entries')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) {
+                throw error;
+            }
+            state.dataEntries = (data ?? []).map((row) => ({
+                id: row.id,
+                name: row.name,
+                size: row.size,
+                type: row.mime,
+                uploadedAt: new Date(row.created_at).getTime(),
+                storagePath: row.storage_path
+            }));
+            emit();
+        } catch (error) {
+            console.error('Failed to fetch data entries', error);
         }
     }
 
@@ -203,6 +282,33 @@ export function createChatbot() {
         const messages = [];
         if (DEFAULT_SYSTEM_PROMPT) {
             messages.push({ role: 'system', content: DEFAULT_SYSTEM_PROMPT });
+        }
+        if (state.isAuthenticated && state.currentUser?.id) {
+            const entries = state.dataEntries || [];
+            const lines = entries.slice(0, 10).map((entry) => {
+                const size = formatFileSize(entry.size);
+                const uploaded = formatDateTime(entry.uploadedAt);
+                return `- entry_id=${entry.id}, name="${entry.name}", size=${size}, uploaded_at=${uploaded}`;
+            });
+            if (entries.length > 10) {
+                lines.push(`… 그리고 ${entries.length - 10}개 추가 파일이 있습니다.`);
+            }
+            messages.push({
+                role: 'system',
+                content: [
+                    `사용자 ID: ${state.currentUser.id}.`,
+                    entries.length
+                        ? '사용 가능한 업로드 데이터 목록:'
+                        : '사용 가능한 업로드 데이터가 없습니다.',
+                    lines.join('\n'),
+                    '데이터를 조회할 때는 query_uploaded_data 도구를 사용하고 entry_id와 user_id를 모두 전달하세요. 필요한 경우 query(키워드)와 max_rows(최대 200)를 함께 지정할 수 있습니다.'
+                ].filter(Boolean).join('\n')
+            });
+        } else {
+            messages.push({
+                role: 'system',
+                content: '사용자는 게스트 모드이므로 업로드된 데이터에 접근할 수 없습니다.'
+            });
         }
         history.forEach((message) => {
             if (!message?.text) {
@@ -400,12 +506,22 @@ export function createChatbot() {
                 return `키워드 ${keywords.join(', ')}`;
             }
         }
-        if (name === 'calculate_date') {
-            if (typeof result.operation === 'string' && result.operation === 'difference' && typeof result.difference_in_days === 'number') {
-                return `${result.start_date} ↔ ${result.end_date} = ${result.difference_in_days}일 차이`;
-            }
-            if (typeof result.operation === 'string' && result.operation === 'add' && typeof result.result_date === 'string') {
-                return `${result.start_date} 기준 ${result.value ?? 0}${result.unit === 'weeks' ? '주' : '일'} → ${result.result_date}`;
+        if (name === 'fetch_current_date') {
+            if (typeof result.iso_date === 'string') {
+                const segments = [`${result.iso_date}`];
+                if (typeof result.weekday === 'string') {
+                    segments.push(result.weekday);
+                }
+                if (typeof result.is_business_day === 'boolean') {
+                    segments.push(result.is_business_day ? '영업일' : '휴일');
+                }
+                if (Array.isArray(result.holidays) && result.holidays.length) {
+                    segments.push(`공휴일: ${result.holidays.join(', ')}`);
+                }
+                if (typeof result.substitute_for === 'string' && result.substitute_for) {
+                    segments.push(`${result.substitute_for} 대체휴일`);
+                }
+                return segments.join(', ');
             }
         }
         if (name === 'lookup_glossary') {
@@ -467,29 +583,144 @@ export function createChatbot() {
         return { ...conversation, messages: conversation.messages.map((message) => ({ ...message })) };
     }
 
-    function addDataEntry(entry) {
+    async function addDataEntry(file) {
+        if (!(file instanceof File)) {
+            throw new Error('유효한 파일이 필요합니다.');
+        }
+
+        if (!state.supabaseClient || !state.currentUser || !state.isAuthenticated) {
+            const dataEntry = {
+                id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                uploadedAt: Date.now()
+            };
+            state.dataEntries.push(dataEntry);
+            state.dataEntries.sort((a, b) => b.uploadedAt - a.uploadedAt);
+            persistDataEntries(null);
+            emit();
+            return { ...dataEntry };
+        }
+
+        const dataBucket = state.appConfig?.DATA_BUCKET || DEFAULT_DATA_BUCKET;
+        const objectPath = `${state.currentUser.id}/${Date.now()}-${file.name}`;
+        const { error: uploadError } = await state.supabaseClient
+            .storage
+            .from(dataBucket)
+            .upload(objectPath, file, {
+                contentType: file.type || 'application/octet-stream',
+                upsert: false
+            });
+        if (uploadError) {
+            throw uploadError;
+        }
+
+        const { data, error } = await state.supabaseClient
+            .from('data_entries')
+            .insert({
+                user_id: state.currentUser.id,
+                name: file.name,
+                size: file.size,
+                mime: file.type,
+                storage_path: objectPath
+            })
+            .select()
+            .single();
+        if (error) {
+            throw error;
+        }
+
         const dataEntry = {
-            id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            name: entry.name,
-            size: entry.size,
-            type: entry.type,
-            uploadedAt: Date.now()
+            id: data.id,
+            name: data.name,
+            size: data.size,
+            type: data.mime,
+            uploadedAt: new Date(data.created_at).getTime(),
+            storagePath: data.storage_path
         };
-        state.dataEntries.push(dataEntry);
-        state.dataEntries.sort((a, b) => b.uploadedAt - a.uploadedAt);
-        persistDataEntries();
+        state.dataEntries.unshift(dataEntry);
         emit();
         return { ...dataEntry };
     }
 
-    function deleteDataEntry(entryId) {
+    async function deleteDataEntry(entryId) {
         const index = state.dataEntries.findIndex((item) => item.id === entryId);
         if (index === -1) {
             return;
         }
+        const entry = state.dataEntries[index];
+
+        if (!state.supabaseClient || !state.currentUser || !state.isAuthenticated) {
+            state.dataEntries.splice(index, 1);
+            persistDataEntries(null);
+            emit();
+            return;
+        }
+
+        try {
+            const dataBucket = state.appConfig?.DATA_BUCKET || DEFAULT_DATA_BUCKET;
+            if (entry?.storagePath) {
+                const { error: storageError } = await state.supabaseClient
+                    .storage
+                    .from(dataBucket)
+                    .remove([entry.storagePath]);
+                if (storageError && storageError.message && !storageError.message.includes('Not Found')) {
+                    throw storageError;
+                }
+            }
+
+            const { error } = await state.supabaseClient
+                .from('data_entries')
+                .delete()
+                .eq('id', entryId);
+            if (error) {
+                throw error;
+            }
+        } catch (error) {
+            console.error('Failed to delete data entry', error);
+            throw error;
+        }
+
         state.dataEntries.splice(index, 1);
-        persistDataEntries();
         emit();
+    }
+
+    async function previewDataEntry(entryId, options = {}) {
+        const maxRows = typeof options.maxRows === 'number' ? Math.max(1, Math.floor(options.maxRows)) : 20;
+        const entry = state.dataEntries.find((item) => item.id === entryId);
+        if (!entry) {
+            throw new Error('데이터를 찾을 수 없습니다.');
+        }
+
+        if (!state.supabaseClient || !state.currentUser || !state.isAuthenticated || !entry.storagePath) {
+            throw new Error('로그인된 사용자만 미리보기를 사용할 수 있습니다.');
+        }
+
+        const dataBucket = state.appConfig?.DATA_BUCKET || DEFAULT_DATA_BUCKET;
+        const download = await state.supabaseClient
+            .storage
+            .from(dataBucket)
+            .download(entry.storagePath);
+        if (download.error) {
+            throw download.error;
+        }
+
+        const buffer = await download.data.arrayBuffer();
+        const XLSX = await loadSheetParser();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const sheetName = workbook.SheetNames?.[0];
+        if (!sheetName) {
+            throw new Error('엑셀 시트를 찾을 수 없습니다.');
+        }
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+        return {
+            entry: { ...entry },
+            sheetName,
+            totalRows: rows.length,
+            rows: rows.slice(0, maxRows)
+        };
     }
 
     function renameConversation(conversationId, title) {
@@ -624,6 +855,7 @@ export function createChatbot() {
             state.activeConversationId = null;
         }
         emit();
+        fetchRemoteDataEntries(user);
     }
 
     async function initialize() {
@@ -672,6 +904,7 @@ export function createChatbot() {
         selectModel: updateModelSelection,
         addDataEntry,
         deleteDataEntry,
+        previewDataEntry,
         getModelOptions() {
             return Object.entries(MODEL_DISPLAY_NAMES).map(([id, label]) => ({ id, label }));
         },

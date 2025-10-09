@@ -124,6 +124,19 @@
             </div>
         </div>
     </div>
+    <div class="modal-overlay" id="dataPreviewModal" hidden>
+        <div class="modal-card modal-card--wide" role="dialog" aria-labelledby="dataPreviewTitle" aria-modal="true">
+            <h3 id="dataPreviewTitle">데이터 미리보기</h3>
+            <p class="modal-description" id="dataPreviewInfo"></p>
+            <p class="form-error" id="dataPreviewError" hidden></p>
+            <div class="data-preview-scroller">
+                <table class="data-preview-table" id="dataPreviewTable"></table>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn--primary" type="button" id="dataPreviewCloseBtn">닫기</button>
+            </div>
+        </div>
+    </div>
     <script type="module" src="main.js"></script>
 </body>
 </html>

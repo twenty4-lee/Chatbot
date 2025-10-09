@@ -26,10 +26,17 @@ const dataDeleteConfirmBtn = document.getElementById('dataDeleteConfirmBtn');
 const dataManageModal = document.getElementById('dataManageModal');
 const dataManageForm = document.getElementById('dataManageForm');
 const dataManageFileInput = document.getElementById('dataManageFileInput');
+const dataManageSubmitBtn = document.getElementById('dataManageSubmitBtn');
 const dataManageCancelBtn = document.getElementById('dataManageCancelBtn');
 const dataManageError = document.getElementById('dataManageError');
 const dataManageSuccessModal = document.getElementById('dataManageSuccessModal');
 const dataManageSuccessCloseBtn = document.getElementById('dataManageSuccessCloseBtn');
+const dataPreviewModal = document.getElementById('dataPreviewModal');
+const dataPreviewTitle = document.getElementById('dataPreviewTitle');
+const dataPreviewInfo = document.getElementById('dataPreviewInfo');
+const dataPreviewError = document.getElementById('dataPreviewError');
+const dataPreviewTable = document.getElementById('dataPreviewTable');
+const dataPreviewCloseBtn = document.getElementById('dataPreviewCloseBtn');
 
 const MENU_OPEN_CLASS = 'open';
 const ALLOWED_EXCEL_EXTENSIONS = ['.xlsx', '.xls', '.xlsm', '.xltx', '.xltm'];
@@ -45,6 +52,7 @@ export function setupChatUI(chatbot) {
     let isComposingMessage = false;
     let pendingSubmitAfterComposition = false;
     let shouldForceClearAfterComposition = false;
+    let isPreviewLoading = false;
 
     function showDataManageError(message) {
         if (!dataManageError) {
@@ -57,6 +65,19 @@ export function setupChatUI(chatbot) {
     function resetDataManageModal() {
         dataManageForm?.reset();
         showDataManageError('');
+    }
+
+    function resetDataPreviewModal() {
+        if (dataPreviewError) {
+            dataPreviewError.hidden = true;
+            dataPreviewError.textContent = '';
+        }
+        if (dataPreviewInfo) {
+            dataPreviewInfo.textContent = '';
+        }
+        if (dataPreviewTable) {
+            dataPreviewTable.innerHTML = '';
+        }
     }
 
     function isExcelFile(file) {
@@ -101,6 +122,22 @@ export function setupChatUI(chatbot) {
         requestAnimationFrame(() => {
             dataDeleteConfirmBtn?.focus();
         });
+    }
+
+    function openDataPreviewModal() {
+        resetDataPreviewModal();
+        dataPreviewModal?.removeAttribute('hidden');
+        requestAnimationFrame(() => {
+            dataPreviewCloseBtn?.focus();
+        });
+    }
+
+    function closeDataPreviewModal() {
+        if (!dataPreviewModal) {
+            return;
+        }
+        dataPreviewModal.setAttribute('hidden', '');
+        resetDataPreviewModal();
     }
 
     function closeDataDeleteModal() {
@@ -285,6 +322,8 @@ export function setupChatUI(chatbot) {
             return;
         }
 
+        closeAllDataMenus();
+
         dataManageList.innerHTML = '';
 
         if (!state.dataEntries.length) {
@@ -309,14 +348,35 @@ export function setupChatUI(chatbot) {
             info.appendChild(name);
             info.appendChild(meta);
 
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.className = 'btn btn--text data-delete';
-            deleteButton.dataset.entryId = entry.id;
-            deleteButton.textContent = '삭제';
+            const menuTrigger = document.createElement('button');
+            menuTrigger.type = 'button';
+            menuTrigger.className = 'data-menu-trigger';
+            menuTrigger.dataset.entryId = entry.id;
+            menuTrigger.setAttribute('aria-label', '데이터 메뉴');
+            menuTrigger.textContent = '⋯';
+
+            const menu = document.createElement('div');
+            menu.className = 'data-menu';
+            menu.dataset.entryId = entry.id;
+
+            const previewAction = document.createElement('button');
+            previewAction.type = 'button';
+            previewAction.dataset.action = 'preview';
+            previewAction.dataset.entryId = entry.id;
+            previewAction.textContent = '미리보기';
+
+            const deleteAction = document.createElement('button');
+            deleteAction.type = 'button';
+            deleteAction.dataset.action = 'delete';
+            deleteAction.dataset.entryId = entry.id;
+            deleteAction.textContent = '삭제';
+
+            menu.appendChild(previewAction);
+            menu.appendChild(deleteAction);
 
             item.appendChild(info);
-            item.appendChild(deleteButton);
+            item.appendChild(menuTrigger);
+            item.appendChild(menu);
             dataManageList.appendChild(item);
         });
     }
@@ -396,6 +456,7 @@ export function setupChatUI(chatbot) {
     }
 
     function handleSavedChatClick(event) {
+        closeAllDataMenus();
         const menuTrigger = event.target.closest('.chat-menu-trigger');
         if (menuTrigger) {
             const menu = menuTrigger.parentElement.querySelector('.chat-menu');
@@ -466,7 +527,7 @@ export function setupChatUI(chatbot) {
         showDataManageError('');
     }
 
-    function handleDataManageSubmit(event) {
+    async function handleDataManageSubmit(event) {
         event.preventDefault();
         const file = dataManageFileInput?.files?.[0] ?? null;
         if (!file) {
@@ -479,36 +540,161 @@ export function setupChatUI(chatbot) {
             return;
         }
         showDataManageError('');
-        const newEntry = chatbot.addDataEntry({ name: file.name, size: file.size, type: file.type });
-        latestState = chatbot.getState();
-        closeDataManageModal();
-        renderDataEntries(latestState);
-        if (newEntry?.id) {
-            const row = dataManageList?.querySelector(`.data-delete[data-entry-id="${newEntry.id}"]`);
-            row?.focus?.();
+        if (dataManageSubmitBtn) {
+            dataManageSubmitBtn.disabled = true;
         }
-        openDataManageSuccessModal();
+        try {
+            const newEntry = await chatbot.addDataEntry(file);
+            latestState = chatbot.getState();
+            closeDataManageModal();
+            renderDataEntries(latestState);
+            if (newEntry?.id) {
+                const row = dataManageList?.querySelector(`.data-delete[data-entry-id="${newEntry.id}"]`);
+                row?.focus?.();
+            }
+            openDataManageSuccessModal();
+        } catch (error) {
+            console.error('Data upload failed', error);
+            showDataManageError(error instanceof Error ? error.message : '데이터 업로드에 실패했습니다. 다시 시도해주세요.');
+        } finally {
+            if (dataManageSubmitBtn) {
+                dataManageSubmitBtn.disabled = false;
+            }
+        }
     }
 
     function handleDataManageListClick(event) {
-        const deleteBtn = event.target.closest('.data-delete');
-        if (!deleteBtn) {
+        const menuTrigger = event.target.closest('.data-menu-trigger');
+        if (menuTrigger) {
+            const menu = menuTrigger.parentElement.querySelector('.data-menu');
+            const isOpen = menu.classList.contains(MENU_OPEN_CLASS);
+            closeAllDataMenus();
+            closeAllChatMenus();
+            if (!isOpen) {
+                menu.classList.add(MENU_OPEN_CLASS);
+            }
+            event.stopPropagation();
             return;
         }
-        const entryId = deleteBtn.dataset.entryId;
-        if (!entryId) {
-            return;
+
+        const actionBtn = event.target.closest('.data-menu button[data-action]');
+        if (actionBtn) {
+            const { action, entryId } = actionBtn.dataset;
+            handleDataMenuAction(action, entryId);
+            closeAllDataMenus();
+            closeAllChatMenus();
+            event.stopPropagation();
         }
-        openDataDeleteModal(entryId);
     }
 
-    function handleDataDeleteConfirm() {
+    async function handleDataDeleteConfirm() {
         if (!pendingDeleteEntryId) {
             closeDataDeleteModal();
             return;
         }
-        chatbot.deleteDataEntry(pendingDeleteEntryId);
-        closeDataDeleteModal();
+        try {
+            await chatbot.deleteDataEntry(pendingDeleteEntryId);
+            latestState = chatbot.getState();
+            renderDataEntries(latestState);
+        } catch (error) {
+            console.error('Data delete failed', error);
+            alert('데이터 삭제 중 오류가 발생했습니다. 콘솔을 확인해주세요.');
+        } finally {
+            closeDataDeleteModal();
+        }
+    }
+
+    function closeAllDataMenus() {
+        if (!dataManageList) {
+            return;
+        }
+        dataManageList.querySelectorAll(`.data-menu.${MENU_OPEN_CLASS}`).forEach((menu) => {
+            menu.classList.remove(MENU_OPEN_CLASS);
+        });
+    }
+
+    function handleDataMenuAction(action, entryId) {
+        if (!entryId) {
+            return;
+        }
+        if (action === 'preview') {
+            showDataPreview(entryId);
+            return;
+        }
+        if (action === 'delete') {
+            openDataDeleteModal(entryId);
+        }
+    }
+
+    function renderDataPreviewTable(rows) {
+        if (!dataPreviewTable) {
+            return;
+        }
+
+        if (!rows.length) {
+            dataPreviewTable.innerHTML = '<tbody><tr><td>표시할 데이터가 없습니다.</td></tr></tbody>';
+            return;
+        }
+
+        const headerRow = rows[0];
+        const hasHeader = Array.isArray(headerRow) && headerRow.every((cell) => typeof cell === 'string');
+        const tableParts = [];
+
+        if (hasHeader) {
+            const headCells = headerRow.map((cell) => `<th>${cell ? String(cell) : ''}</th>`).join('');
+            tableParts.push(`<thead><tr>${headCells}</tr></thead>`);
+        }
+
+        const bodyRows = hasHeader ? rows.slice(1) : rows;
+        const bodyHtml = bodyRows
+            .map((row) => {
+                const cells = Array.isArray(row) ? row : [row];
+                return `<tr>${cells.map((cell) => {
+                    const value = cell === null || cell === undefined ? '' : String(cell);
+                    return `<td>${value}</td>`;
+                }).join('')}</tr>`;
+            })
+            .join('');
+        tableParts.push(`<tbody>${bodyHtml || '<tr><td>표시할 데이터가 없습니다.</td></tr>'}</tbody>`);
+        dataPreviewTable.innerHTML = tableParts.join('');
+    }
+
+    async function showDataPreview(entryId) {
+        if (isPreviewLoading) {
+            return;
+        }
+        isPreviewLoading = true;
+        openDataPreviewModal();
+        if (dataPreviewInfo) {
+            dataPreviewInfo.textContent = '데이터를 불러오는 중입니다...';
+        }
+        if (dataPreviewTable) {
+            dataPreviewTable.innerHTML = '';
+        }
+        try {
+            const result = await chatbot.previewDataEntry(entryId, { maxRows: 20 });
+            if (dataPreviewTitle) {
+                dataPreviewTitle.textContent = `${result.entry.name} (${result.sheetName})`;
+            }
+            if (dataPreviewInfo) {
+                const moreRows = result.totalRows > result.rows.length;
+                dataPreviewInfo.textContent = moreRows
+                    ? `총 ${result.totalRows}행 중 상위 ${result.rows.length}행을 표시합니다.`
+                    : `총 ${result.totalRows}행을 표시합니다.`;
+            }
+            renderDataPreviewTable(result.rows);
+        } catch (error) {
+            console.error('Preview failed', error);
+            if (dataPreviewError) {
+                dataPreviewError.hidden = false;
+                dataPreviewError.textContent = error instanceof Error ? error.message : '데이터를 불러오지 못했습니다.';
+            }
+        } finally {
+            isPreviewLoading = false;
+            if (dataPreviewInfo && !dataPreviewError?.hidden) {
+                dataPreviewInfo.textContent = '';
+            }
+        }
     }
 
     async function handleChatSubmit(event) {
@@ -674,6 +860,10 @@ export function setupChatUI(chatbot) {
             dataManageSuccessCloseBtn.addEventListener('click', closeDataManageSuccessModal);
         }
 
+        if (dataPreviewCloseBtn) {
+            dataPreviewCloseBtn.addEventListener('click', closeDataPreviewModal);
+        }
+
         if (logoutBtn) {
             logoutBtn.addEventListener('click', () => {
                 chatbot.logout();
@@ -683,6 +873,9 @@ export function setupChatUI(chatbot) {
         document.addEventListener('click', (event) => {
             if (!event.target.closest('.chat-item')) {
                 closeAllChatMenus();
+            }
+            if (!event.target.closest('.data-item')) {
+                closeAllDataMenus();
             }
         });
 
@@ -723,6 +916,14 @@ export function setupChatUI(chatbot) {
             });
         }
 
+        if (dataPreviewModal) {
+            dataPreviewModal.addEventListener('click', (event) => {
+                if (event.target === dataPreviewModal) {
+                    closeDataPreviewModal();
+                }
+            });
+        }
+
         if (dataDeleteModal) {
             dataDeleteModal.addEventListener('click', (event) => {
                 if (event.target === dataDeleteModal) {
@@ -745,6 +946,10 @@ export function setupChatUI(chatbot) {
                 if (!dataDeleteModal?.hasAttribute('hidden')) {
                     closeDataDeleteModal();
                 }
+                if (!dataPreviewModal?.hasAttribute('hidden')) {
+                    closeDataPreviewModal();
+                }
+                closeAllDataMenus();
                 cancelChatRename();
                 closeAllChatMenus();
             }
